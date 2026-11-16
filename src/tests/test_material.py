@@ -336,3 +336,35 @@ def test_multiphasic_model(hex20_febmesh: feb.mesh.Mesh, tmp_path: Path):
     my_model.save(model_file)
     result = feb.model.run_model(model_file, silent=False)
     assert result == 0, "Multiphasic.feb failed"
+
+
+def _single_material_model(hex8_febmesh: feb.mesh.Mesh, make_material) -> feb.model.Model:
+    my_model = feb.model.Model(mesh_=hex8_febmesh)
+    for i, element in enumerate(my_model.mesh_.elements):
+        my_model.material_.add_material(make_material(element.name, i + 1))
+        my_model.meshdomains_.add_solid_domain(feb.meshdomains.SolidDomain(name=element.name, mat=element.name))
+    return my_model
+
+
+def test_ogden_unconstrained_cp_and_negative_exponent(hex8_febmesh: feb.mesh.Mesh, tmp_path: Path):
+    param = feb.material.MaterialParameter
+    my_model = _single_material_model(
+        hex8_febmesh,
+        lambda name, id: feb.material.UnconstrainedOgden(name=name, id=id, cp=param(text=0.01), c1=param(text=-0.02), m1=param(text=-2.0)),
+    )
+    model_file = tmp_path.joinpath("ogden_unconstrained_cp.feb")
+    my_model.save(model_file)
+    text = model_file.read_text()
+    assert "<cp>0.01</cp>" in text and "<m1>-2</m1>" in text
+    assert feb.model.run_model(model_file, silent=True) == 0
+
+
+def test_custom_material(hex8_febmesh: feb.mesh.Mesh, tmp_path: Path):
+    my_model = _single_material_model(
+        hex8_febmesh,
+        lambda name, id: feb.material.CustomMaterial(name=name, id=id, type="neo-Hookean", parameters={"density": 1e-6, "E": 1.0, "v": 0.3}),
+    )
+    model_file = tmp_path.joinpath("custom_material.feb")
+    my_model.save(model_file)
+    assert '<material name="bottom-layer" id="1" type="neo-Hookean">' in model_file.read_text()
+    assert feb.model.run_model(model_file, silent=True) == 0

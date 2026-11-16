@@ -91,14 +91,8 @@ TAG_LUT = {
         name="PLT_HDR_COMPRESSION",
         pyname="compression",
     ),
-    int(0x01010005): Xtag(
-        name="PLT_HDR_AUTHOR",
-        pyname="author",
-    ),
-    int(0x01010006): Xtag(
-        name="PLT_HDR_SOFTWARE",
-        pyname="software",
-    ),
+    int(0x01010005): Xtag(name="PLT_HDR_AUTHOR", pyname="author", format="szname"),
+    int(0x01010006): Xtag(name="PLT_HDR_SOFTWARE", pyname="software", format="szname"),
     int(0x01010007): Xtag(name="PLT_HDR_UNITS", pyname="units", format="szname"),
     # Root/Dictionary
     int(0x01020000): Xtag(name="PLT_DICTIONARY", pyname="dictionary"),
@@ -435,7 +429,8 @@ def parse_root_header(buffer: bytes, f):
     i = 0
     while i < len(buffer) - 8:
         tag, offset = parse_prefix(buffer[i : i + 8])
-        f["/"].attrs[TAG_LUT[tag].name] = np.frombuffer(buffer[i + 8 : i + 8 + offset], dtype=_DTYPES[TAG_LUT[tag].format])
+        data = np.frombuffer(buffer[i + 8 : i + 8 + offset], dtype=_DTYPES[TAG_LUT[tag].format])
+        f["/"].attrs[TAG_LUT[tag].name] = _unwrap_string(data) if TAG_LUT[tag].format == "szname" else data
         i += 8 + offset
 
 

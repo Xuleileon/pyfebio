@@ -1,4 +1,6 @@
 import math
+import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -153,8 +155,21 @@ class MultiphasicModel(Model):
     )
 
 
-def run_model(filepath: str | Path, silent: bool = False) -> int:
+def run_model(
+    filepath: str | Path,
+    silent: bool = False,
+    executable: str | Path | None = None,
+    timeout: float | None = None,
+) -> int:
+    """Run FEBio on ``filepath`` and return its exit code.
+
+    The solver is ``executable`` if given, else the ``FEBIO_PATH`` environment variable, else ``febio4`` on PATH.
+    ``timeout`` (seconds) kills a run that takes too long and raises ``subprocess.TimeoutExpired``.
+    """
+    exe = executable or os.environ.get("FEBIO_PATH") or shutil.which("febio4")
+    if exe is None:
+        raise FileNotFoundError("FEBio not found: pass executable=, set FEBIO_PATH, or put febio4 on PATH")
+    cmd = [str(exe), "-i", str(filepath)]
     if silent:
-        return subprocess.run(f"febio4 -i {filepath} -silent", shell=True, check=False).returncode
-    else:
-        return subprocess.run(f"febio4 -i {filepath}", shell=True, check=False).returncode
+        cmd.append("-silent")
+    return subprocess.run(cmd, check=False, timeout=timeout).returncode

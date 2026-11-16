@@ -1,8 +1,9 @@
 from typing import Annotated, Literal, TypeAlias
 
-from pydantic import AfterValidator, Field, PositiveInt, TypeAdapter, ValidationError
+from pydantic import AfterValidator, Field, PositiveInt, TypeAdapter, ValidationError, field_validator
 from pydantic.types import NonNegativeFloat
-from pydantic_xml import BaseXmlModel, attr, element
+from pydantic_xml import BaseXmlModel, attr, element, xml_field_serializer
+from pydantic_xml.element import XmlElementWriter
 
 from ._types import StringFloatVec3, StringFloatVec9, StringUIntVec2, StringUIntVec3
 
@@ -214,7 +215,14 @@ def mat_is_string_float_vec9(parameter: MaterialParameter) -> MaterialParameter:
         raise ValueError(f"{parameter.text=} must be of type(StringFloatVec9)") from e
 
 
+def mat_is_nonzero_float(parameter: MaterialParameter) -> MaterialParameter:
+    if isinstance(parameter.text, float | int) and parameter.type is None and parameter.text == 0.0:
+        raise ValueError(f"{parameter.text=} must not be 0.0")
+    return parameter
+
+
 MatPositiveFloat: TypeAlias = Annotated[MaterialParameter, AfterValidator(mat_is_positive_float)]
+MatNonZeroFloat: TypeAlias = Annotated[MaterialParameter, AfterValidator(mat_is_nonzero_float)]
 MatNonNegativeFloat: TypeAlias = Annotated[MaterialParameter, AfterValidator(mat_is_non_negative_float)]
 MatGTEOneFloat: TypeAlias = Annotated[MaterialParameter, AfterValidator(mat_is_gte_one_float)]
 MatGTOneFloat: TypeAlias = Annotated[MaterialParameter, AfterValidator(mat_is_gt_one_float)]
@@ -519,18 +527,19 @@ class TransIsoVerondaWestmann(MaterialBase, tag="material", extra="forbid"):
 
 class UnconstrainedOgden(MaterialBase, tag="material", extra="forbid"):
     type: Literal["Ogden unconstrained"] = attr(default="Ogden unconstrained", frozen=True)
-    m1: MatPositiveFloat = element(default=MaterialParameter(text=1.0))
-    c1: MatPositiveFloat = element(default=MaterialParameter(text=1.0))
-    m2: MatPositiveFloat | None = element(default=None)
-    c2: MatPositiveFloat | None = element(default=None)
-    m3: MatPositiveFloat | None = element(default=None)
-    c3: MatPositiveFloat | None = element(default=None)
-    m4: MatPositiveFloat | None = element(default=None)
-    c4: MatPositiveFloat | None = element(default=None)
-    m5: MatPositiveFloat | None = element(default=None)
-    c5: MatPositiveFloat | None = element(default=None)
-    m6: MatPositiveFloat | None = element(default=None)
-    c6: MatPositiveFloat | None = element(default=None)
+    cp: MaterialParameter | None = element(default=None)
+    m1: MatNonZeroFloat = element(default=MaterialParameter(text=1.0))
+    c1: MaterialParameter = element(default=MaterialParameter(text=1.0))
+    m2: MatNonZeroFloat | None = element(default=None)
+    c2: MaterialParameter | None = element(default=None)
+    m3: MatNonZeroFloat | None = element(default=None)
+    c3: MaterialParameter | None = element(default=None)
+    m4: MatNonZeroFloat | None = element(default=None)
+    c4: MaterialParameter | None = element(default=None)
+    m5: MatNonZeroFloat | None = element(default=None)
+    c5: MaterialParameter | None = element(default=None)
+    m6: MatNonZeroFloat | None = element(default=None)
+    c6: MaterialParameter | None = element(default=None)
 
 
 class ArrudaBoyceUC(MaterialBase, tag="material", extra="forbid"):
@@ -1270,8 +1279,34 @@ class MultiphasicMaterial(MaterialBaseNoDensity, tag="material", extra="forbid")
         self.solid_bound.append(new_sbm)
 
 
+class CustomMaterial(BaseXmlModel, tag="material", extra="forbid"):
+    """A material of any FEBio type, e.g. one provided by a plugin.
+
+    ``parameters`` are written as child elements in the given order:
+    ``CustomMaterial(name="foam", type="my foam", parameters={"density": 1e-9, "mu": 0.02})``
+    """
+
+    name: str | None = attr(default=None)
+    id: int | None = attr(default=None)
+    type: str = attr()
+    parameters: dict[str, str] = element(default_factory=dict)
+
+    @field_validator("parameters", mode="before")
+    @classmethod
+    def _stringify_parameters(cls, value: dict[str, int | float | str]) -> dict[str, str]:
+        return {key: str(val) for key, val in value.items()}
+
+    @xml_field_serializer("parameters")
+    def _serialize_parameters(self, element: XmlElementWriter, value: dict[str, str], field_name: str) -> None:
+        for key, val in value.items():
+            child = element.make_element(tag=key, nsmap=None)
+            child.set_text(val)
+            element.append_element(child)
+
+
 MaterialType = (
-    UnconstrainedMaterials
+    CustomMaterial
+    | UnconstrainedMaterials
     | EvolvingUnconstrainedMaterials
     | UncoupledMaterials
     | RigidBody
